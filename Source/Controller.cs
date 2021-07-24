@@ -166,8 +166,18 @@ namespace EdB.PrepareCarefully {
         }
 
         protected void AddPawnToWorld(CustomPawn pawn) {
-            // Don't add colonists to the world.
+            // Don't add colonists to the world
             if (pawn.Type == CustomPawnType.Colonist) {
+                return;
+            }
+            // Don't add hidden pawns to the world--they should already be there
+            if (pawn.Type == CustomPawnType.Hidden) {
+                return;
+            }
+
+            // Killing a pawn adds it to the world
+            if (pawn.Type == CustomPawnType.Temporary) {
+                pawn.Pawn.Kill(null, null);
                 return;
             }
 
@@ -204,6 +214,7 @@ namespace EdB.PrepareCarefully {
             
             // Don't add pawns to the world if they have already been added.
             if (Find.World.worldPawns.Contains(pawn.Pawn) || Find.GameInitData.startingAndOptionalPawns.Contains(pawn.Pawn)) {
+                Logger.Message("Didn't add pawn " + pawn.ShortName + " to the world because they've already been added");
                 return;
             }
             else {

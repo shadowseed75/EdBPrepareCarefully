@@ -23,6 +23,9 @@ namespace EdB.PrepareCarefully {
         public Color hairColor;
         public string headGraphicPath;
         public string bodyType;
+        public string beard;
+        public string faceTattoo;
+        public string bodyTattoo;
         public string firstName;
         public string lastName;
         public string nickName;
@@ -72,6 +75,9 @@ namespace EdB.PrepareCarefully {
             this.hairColor = pawn.Pawn.story.hairColor;
             this.headGraphicPath = pawn.HeadGraphicPath;
             this.bodyType = pawn.BodyType.defName;
+            this.beard = pawn.Beard?.defName;
+            this.faceTattoo = pawn.FaceTattoo?.defName;
+            this.bodyTattoo = pawn.BodyTattoo?.defName;
             this.firstName = pawn.FirstName;
             this.nickName = pawn.NickName;
             this.lastName = pawn.LastName;
@@ -151,7 +157,10 @@ namespace EdB.PrepareCarefully {
             Scribe_Values.Look<string>(ref this.bodyType, "bodyType", null, false);
             Scribe_Values.Look<string>(ref this.hairDef, "hairDef", null, false);
             Scribe_Values.Look<Color>(ref this.hairColor, "hairColor", Color.white, false);
-            Scribe_Values.Look<string>(ref this.headGraphicPath, "headGraphicPath", null, false);
+            Scribe_Values.Look<string>(ref this.beard, "beard", null, false);
+            Scribe_Values.Look<string>(ref this.beard, "faceTattoo", null, false);
+            Scribe_Values.Look<string>(ref this.beard, "bodyTattoo", null, false);
+            Scribe_Values.Look<string>(ref this.hairDef, "hairDef", null, false);
             Scribe_Values.Look<string>(ref this.firstName, "firstName", null, false);
             Scribe_Values.Look<string>(ref this.nickName, "nickName", null, false);
             Scribe_Values.Look<string>(ref this.lastName, "lastName", null, false);

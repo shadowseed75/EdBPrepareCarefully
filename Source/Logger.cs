@@ -3,12 +3,12 @@ using Verse;
 
 namespace EdB.PrepareCarefully {
     public static class Logger {
-        private static readonly bool DebugEnabled = false;
+        private static readonly bool DebugEnabled = true;
         private static readonly string Prefix = "[Prepare Carefully] ";
 
         public static void Debug(string message) {
             if (DebugEnabled) {
-                Log.Message("<color='#33ff33'>" + message + "</color>", true);
+                Log.Message("<color='#33ff33'>" + message + "</color>");
             }
         }
 

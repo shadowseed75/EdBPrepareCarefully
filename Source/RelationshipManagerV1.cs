@@ -6,75 +6,26 @@ using System.Reflection;
 using Verse;
 
 namespace EdB.PrepareCarefully {
-    public class RelationshipManager {
+    public class RelationshipManagerV1 {
+        protected Randomizer randomizer = new Randomizer();
+        protected List<PawnRelationDef> allowedRelationships = new List<PawnRelationDef>();
+        protected Dictionary<PawnRelationDef, PawnRelationDef> inverseRelationships = new Dictionary<PawnRelationDef, PawnRelationDef>();
         protected List<CustomRelationship> deletionList = new List<CustomRelationship>();
         protected List<CustomPawn> parentChildPawns = new List<CustomPawn>();
-
-        protected bool dirty = true;
-        protected int HiddenPawnIndex = 1;
-        protected int TemporaryPawnIndex = 1;
-
-        protected Randomizer randomizer = new Randomizer();
-        protected RelationshipDefinitionHelper definitions;
-
-        protected List<CustomPawn> hiddenPawns = new List<CustomPawn>();
-        protected List<CustomPawn> temporaryPawns = new List<CustomPawn>();
-        protected RelationshipList relationships = new RelationshipList();
+        protected Dictionary<Pawn, CustomPawn> pawnCustomPawnLookup = new Dictionary<Pawn, CustomPawn>();
         protected List<ParentChildGroup> parentChildGroups = new List<ParentChildGroup>();
+        protected bool dirty = true;
+        protected int HiddenParentChildIndex = 1;
+        protected int TemporaryParentChildIndex = 1;
 
-        // The list of relationship definitions from which to choose--excluding parent/child relationship
-        public IEnumerable<PawnRelationDef> AllowedRelationships {
-            get {
-                return definitions.AllowedRelationships;
-            }
-        }
+        private List<CustomPawn> temporaryPawns = new List<CustomPawn>();
 
-        // The list of defined relationships between pawns--exluding parent/child relationships
-        public IEnumerable<CustomRelationship> Relationships {
-            get {
-                return relationships;
-            }
-        }
-
-        // The list of parent/child relationship groups
-        public List<ParentChildGroup> ParentChildGroups {
-            get {
-                return parentChildGroups;
-            }
-        }
-
-        // The list of temporary pawns created to link pawns together in an indirect relationship (i.e. you need
-        // have parent pawns to define a sibling relationship)
-        public List<CustomPawn> TemporaryPawns {
-            get {
-                return temporaryPawns;
-            }
-        }
-
-        public int NextHiddenParentChildIndex {
-            get {
-                return HiddenPawnIndex++;
-            }
-        }
-
-        public int NextTemporaryParentChildIndex {
-            get {
-                return TemporaryPawnIndex++;
-            }
-        }
-
-        public RelationshipManager() { }
-
-        public void InitializeWithPawns(List<CustomPawn> customPawns) {
-            definitions = new RelationshipDefinitionHelper();
-            InitializeHiddenPawns(customPawns);
-            parentChildGroups = InitializeParentChildGroupsForStartingPawns(customPawns);
+        protected RelationshipList relationships = new RelationshipList();
+        
+        public RelationshipManagerV1(List<CustomPawn> customPawns) {
+            PopulateAllowedRelationships();
+            PopulateInverseRelationships();
             InitializeRelationshipsForStartingPawns(customPawns);
-            foreach (var p in customPawns) {
-                if (p.Type == CustomPawnType.Colonist || p.Type == CustomPawnType.World) {
-                    //p.Pawn.relations.ClearAllRelations();
-                }
-            }
             // Add a male and a female pawn to the new hidden pawn list.
             temporaryPawns.Add(CreateNewTemporaryPawn(Gender.Female));
             temporaryPawns.Add(CreateNewTemporaryPawn(Gender.Male));
@@ -84,86 +35,149 @@ namespace EdB.PrepareCarefully {
             ReassignHiddenPawnIndices();
         }
 
-        public void InitializeHiddenPawns(List<CustomPawn> customPawns) {
-            HashSet<String> customPawnLookup = new HashSet<string>();
-            foreach (var p in customPawns) {
-                customPawnLookup.Add(p.Pawn.GetUniqueLoadID());
+        public List<CustomPawn> TemporaryPawns {
+            get {
+                return temporaryPawns;
             }
-            foreach (var p in Find.WorldPawns.AllPawnsAlive) {
-                foreach (var r in p.relations.DirectRelations) {
-                    if (customPawnLookup.Contains(r.otherPawn.GetUniqueLoadID())) {
-                        hiddenPawns.Add(new CustomPawn(p) {
-                            Index = NextHiddenParentChildIndex,
-                            Type = CustomPawnType.Hidden
-                        });
-                        Logger.Debug("Added hidden pawn " + p.LabelShort + ", " + p.GetUniqueLoadID());
-                        break;
-                    }
+        }
+
+        public int NextHiddenParentChildIndex {
+            get {
+                return HiddenParentChildIndex++;
+            }
+        }
+
+        public int NextTemporaryParentChildIndex {
+            get {
+                return TemporaryParentChildIndex++;
+            }
+        }
+
+        protected void PopulateAllowedRelationships() {
+            allowedRelationships.AddRange(DefDatabase<PawnRelationDef>.AllDefs.ToList().FindAll((PawnRelationDef def) => {
+                if (def.familyByBloodRelation) {
+                    return false;
+                }
+                CarefullyPawnRelationDef extended = DefDatabase<CarefullyPawnRelationDef>.GetNamedSilentFail(def.defName);
+                if (extended != null && extended.animal) {
+                    return false;
+                }
+                MethodInfo info = def.workerClass.GetMethod("CreateRelation", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+                if (info == null) {
+                    return false;
+                }
+                else {
+                    return true;
+                }
+            }));
+        }
+
+        protected void PopulateInverseRelationships() {
+            foreach (var def in DefDatabase<PawnRelationDef>.AllDefs) {
+                PawnRelationDef inverse = null;
+                CarefullyPawnRelationDef extended = DefDatabase<CarefullyPawnRelationDef>.GetNamedSilentFail(def.defName);
+                if (extended != null && extended.inverse != null) {
+                    inverse = DefDatabase<PawnRelationDef>.GetNamedSilentFail(extended.inverse);
+                }
+                else {
+                    inverse = ComputeInverseRelationship(def);
+                }
+                if (inverse != null) {
+                    inverseRelationships[def] = inverse;
                 }
             }
         }
 
-        public PawnRelationDef FindInverseRelationship(PawnRelationDef relationDef) {
-            return definitions.FindInverseRelationship(relationDef);
-        }
-
-        protected Dictionary<String, CustomPawn> PawnToCustomPawnMap(IEnumerable<CustomPawn> customPawns) {
-            Dictionary<String, CustomPawn> result = new Dictionary<String, CustomPawn>();
-            foreach (var pawn in customPawns) {
-                result.Add(pawn.Pawn.GetUniqueLoadID(), pawn);
+        public PawnRelationDef FindInverseRelationship(PawnRelationDef def) {
+            PawnRelationDef inverse;
+            if (inverseRelationships.TryGetValue(def, out inverse)) {
+                return inverse;
             }
-            return result;
+            else {
+                return null;
+            }
         }
 
-        protected List<ParentChildGroup> InitializeParentChildGroupsForStartingPawns(List<CustomPawn> customPawns) {
+        protected PawnRelationDef ComputeInverseRelationship(PawnRelationDef def) {
+            Pawn source = randomizer.GenerateColonist();
+            Pawn target = randomizer.GenerateColonist();
+            MethodInfo info = def.workerClass.GetMethod("CreateRelation", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly);
+            if (info == null) {
+                return null;
+            }
+            var worker = FindPawnRelationWorker(def);
+            PawnGenerationRequest req = new PawnGenerationRequest();
+            worker.CreateRelation(source, target, ref req);
+            foreach (PawnRelationDef d in PawnRelationUtility.GetRelations(target, source)) {
+                return d;
+            }
+            return null;
+        }
+
+        public PawnRelationWorker FindPawnRelationWorker(PawnRelationDef def) {
+            CarefullyPawnRelationDef carefullyDef = DefDatabase<CarefullyPawnRelationDef>.GetNamedSilentFail(def.defName);
+            if (carefullyDef == null || carefullyDef.workerClass == null) {
+                return def.Worker;
+            }
+            else {
+                PawnRelationWorker worker = carefullyDef.Worker;
+                if (worker != null) {
+                    //Logger.Debug("Returned carefully worker for " + def.defName + ", " + worker.GetType().FullName);
+                    return carefullyDef.Worker;
+                }
+                else {
+                    return def.Worker;
+                }
+            }
+        }
+
+        public List<ParentChildGroup> ParentChildGroups {
+            get {
+                return parentChildGroups;
+            }
+        }
+
+        private void InitializeParentChildGroupsForStartingPawns(List<CustomPawn> customPawns) {
             // Create a map so that we can look up custom pawns based on their matching pawn.
+            Dictionary<Pawn, CustomPawn> pawnToCustomPawnMap = new Dictionary<Pawn, CustomPawn>();
             int pawnCount = customPawns.Count;
-            Dictionary<String, CustomPawn> pawnToCustomPawnMap = PawnToCustomPawnMap(customPawns);
+            for (int i = 0; i < customPawns.Count; i++) {
+                pawnToCustomPawnMap.Add(customPawns[i].Pawn, customPawns[i]);
+            }
             
             // Go through each pawn and look for a child/parent relationship between it and all other pawns.
             Dictionary<Pawn, ParentChildGroup> groupLookup = new Dictionary<Pawn, ParentChildGroup>();
-
             foreach (CustomPawn child in customPawns) {
-                foreach (var r in child.Pawn.relations.DirectRelations.Where(r => r.def == PawnRelationDefOf.Parent)) {
-                    Logger.Debug(child.LabelShort + " is child of " + r.otherPawn.LabelShort);
-                    Pawn parent = r.otherPawn;
-                    if (pawnToCustomPawnMap.TryGetValue(parent.GetUniqueLoadID(), out CustomPawn parentCustomPawn)) {
-                        // See if the child has an existing parent/child group.  If not, create the group.
-                        // If so, just add the parent to the existing group.
-                        if (!groupLookup.TryGetValue(child.Pawn, out ParentChildGroup group)) {
-                            group = new ParentChildGroup();
-                            group.Children.Add(child);
-                            groupLookup.Add(child.Pawn, group);
+                foreach (var r in child.Pawn.relations.DirectRelations) {
+                    if (r.def == PawnRelationDefOf.Parent) {
+                        Pawn parent = r.otherPawn;
+                        if (pawnToCustomPawnMap.ContainsKey(parent)) {
+                            CustomPawn parentCustomPawn = pawnToCustomPawnMap[parent];
+                            CustomPawn childCustomPawn = child;
+
+                            // See if the child has an existing parent/child group.  If not, create the group.
+                            // If so, just add the parent.
+                            ParentChildGroup group;
+                            if (!groupLookup.TryGetValue(child.Pawn, out group)) {
+                                group = new ParentChildGroup();
+                                group.Children.Add(childCustomPawn);
+                                groupLookup.Add(child.Pawn, group);
+                            }
+                            group.Parents.Add(parentCustomPawn);
                         }
-                        group.Parents.Add(parentCustomPawn);
-                    }
-                    else {
-                        Logger.Warning("Failed to initialize parent-child relationship for child " + child.Pawn.LabelShort + "-" + child.Pawn.GetHashCode()
-                            + " and parent " + parent.LabelShort + "-" + parent.GetHashCode() + ". Couldn't find the parent in the provided set of pawns.");
+                        else {
+                            Logger.Warning("pawnToCustomPawnMap did not contain key for " + parent.LabelShort);
+                        }
                     }
                 }
             }
 
-            return SortAndDedupeParentChildGroups(groupLookup.Values);
+            SortAndDedupeParentChildGroups(groupLookup.Values);
         }
 
-        public void InitializeWithRelationships(List<CustomRelationship> relationships) {
-            List<CustomRelationship> parentChildRelationships = new List<CustomRelationship>();
-            List<CustomRelationship> otherRelationships = new List<CustomRelationship>();
-            foreach (var r in relationships) {
-                if (r.def.defName == "Parent" || r.def.defName == "Child") {
-                    parentChildRelationships.Add(r);
-                }
-                else {
-                    otherRelationships.Add(r);
-                }
-            }
-            foreach (var r in otherRelationships) {
-                AddRelationship(r.def, r.source, r.target);
-            }
-
+        private void InitializeParentChildGroupRelationships(List<CustomRelationship> relationships) {
             Dictionary<CustomPawn, ParentChildGroup> groupLookup = new Dictionary<CustomPawn, ParentChildGroup>();
-            foreach (var relationship in parentChildRelationships) {
+            foreach (var relationship in relationships) {
                 CustomPawn parent = null;
                 CustomPawn child = null;
                 if (relationship.def == PawnRelationDefOf.Parent) {
@@ -194,10 +208,11 @@ namespace EdB.PrepareCarefully {
                 group.Parents.Add(parent);
             }
 
-            parentChildGroups = SortAndDedupeParentChildGroups(groupLookup.Values);
+            SortAndDedupeParentChildGroups(groupLookup.Values);
         }
 
-        private List<ParentChildGroup> SortAndDedupeParentChildGroups(IEnumerable<ParentChildGroup> groups) {
+        private void SortAndDedupeParentChildGroups(IEnumerable<ParentChildGroup> groups) {
+            
             // Sort the parents.
             Dictionary<int, ParentChildGroup> parentLookup = new Dictionary<int, ParentChildGroup>();
             HashSet<ParentChildGroup> groupsToRemove = new HashSet<ParentChildGroup>();
@@ -222,9 +237,10 @@ namespace EdB.PrepareCarefully {
             foreach (var group in groups) {
                 int hash = 0;
                 foreach (var parent in group.Parents) {
-                    hash ^= EqualityComparer<string>.Default.GetHashCode(parent.Id);
+                    hash = hash ^ EqualityComparer<string>.Default.GetHashCode(parent.Id);
                 }
-                if (parentLookup.TryGetValue(hash, out var existing)) {
+                ParentChildGroup existing;
+                if (parentLookup.TryGetValue(hash, out existing)) {
                     //Logger.Debug("Removing duplicate group: " + group);
                     //Logger.Debug("  Duplicate of group: " + existing);
                     foreach (var child in group.Children) {
@@ -247,36 +263,36 @@ namespace EdB.PrepareCarefully {
                 }
             }
             
-            return result;
+            parentChildGroups = result;
         }
 
         public void ReassignHiddenPawnIndices() {
-            HiddenPawnIndex = 1;
-            TemporaryPawnIndex = 1;
+            HiddenParentChildIndex = 1;
+            TemporaryParentChildIndex = 1;
             foreach (var group in parentChildGroups) {
                 foreach (var parent in group.Parents) {
                     if (parent.Type == CustomPawnType.Hidden && parent.Index == null) {
-                        parent.Index = HiddenPawnIndex++;
+                        parent.Index = HiddenParentChildIndex++;
                     }
                     else if (parent.Type == CustomPawnType.Temporary && parent.Index == null) {
-                        parent.Index = TemporaryPawnIndex++;
+                        parent.Index = TemporaryParentChildIndex++;
                     }
                 }
                 foreach (var child in group.Children) {
                     if (child.Type == CustomPawnType.Hidden && child.Index == null) {
-                        child.Index = HiddenPawnIndex++;
+                        child.Index = HiddenParentChildIndex++;
                     }
                     else if (child.Type == CustomPawnType.Temporary && child.Index == null) {
-                        child.Index = TemporaryPawnIndex++;
+                        child.Index = TemporaryParentChildIndex++;
                     }
                 }
             }
             foreach (var r in relationships) {
                 if (r.source.Type == CustomPawnType.Hidden && r.source.Index == null) {
-                    r.source.Index = HiddenPawnIndex++;
+                    r.source.Index = HiddenParentChildIndex++;
                 }
                 if (r.target.Type == CustomPawnType.Hidden && r.target.Index == null) {
-                    r.target.Index = HiddenPawnIndex++;
+                    r.target.Index = HiddenParentChildIndex++;
                 }
             }
         }
@@ -295,7 +311,7 @@ namespace EdB.PrepareCarefully {
             }
         }
 
-        public IEnumerable<CustomPawn> HiddenParentChildPawns {
+        public IEnumerable<CustomPawn> HiddenPawns {
             get {
                 return ParentChildPawns.Where((CustomPawn p) => {
                     return p.Type == CustomPawnType.Hidden || p.Type == CustomPawnType.Temporary;
@@ -303,43 +319,15 @@ namespace EdB.PrepareCarefully {
             }
         }
 
-        public IEnumerable<CustomPawn> AvailableColonyPawns {
-            get {
-                return PrepareCarefully.Instance.Pawns.Where(p => p.Type == CustomPawnType.Colonist);
-            }
-        }
-
-        public IEnumerable<CustomPawn> AvailableWorldPawns {
-            get {
-                return PrepareCarefully.Instance.Pawns.Where(p => p.Type == CustomPawnType.World);
-            }
-        }
-
-        public IEnumerable<CustomPawn> ColonyAndWorldPawnsForRelationships {
-            get {
-                return PrepareCarefully.Instance.Pawns;
-            }
-        }
-
-        public IEnumerable<CustomPawn> AvailableHiddenPawns {
-            get {
-                return hiddenPawns;
-            }
-        }
-
-        public IEnumerable<CustomPawn> AvailableTemporaryPawns {
-            get {
-                return temporaryPawns;
-            }
-        }
-
         public CustomPawn AddHiddenParentChildPawn(CustomPawn customPawn) {
             parentChildPawns.Add(customPawn);
+            pawnCustomPawnLookup.Add(customPawn.Pawn, customPawn);
             return customPawn;
         }
 
         public CustomPawn AddTemporaryParentChildPawn(CustomPawn customPawn) {
             parentChildPawns.Add(customPawn);
+            pawnCustomPawnLookup.Add(customPawn.Pawn, customPawn);
             return customPawn;
         }
 
@@ -349,11 +337,13 @@ namespace EdB.PrepareCarefully {
 
         public CustomPawn AddVisibleParentChildPawn(Pawn pawn, CustomPawn customPawn) {
             parentChildPawns.Add(customPawn);
+            pawnCustomPawnLookup.Add(pawn, customPawn);
             return customPawn;
         }
 
         public void InitializeWithCustomPawns(IEnumerable<CustomPawn> pawns) {
             parentChildPawns.Clear();
+            pawnCustomPawnLookup.Clear();
 
             // Create parent/child pawn records for each colonist.
             foreach (var pawn in pawns) {
@@ -370,6 +360,7 @@ namespace EdB.PrepareCarefully {
         }
 
         public void InitializeRelationshipsForStartingPawns(List<CustomPawn> customPawns) {
+            InitializeParentChildGroupsForStartingPawns(customPawns);
 
             // Go through each pawn and check for relationships between it and all other pawns.
             foreach (CustomPawn pawn in customPawns) {
@@ -393,7 +384,7 @@ namespace EdB.PrepareCarefully {
                         }
                         // Otherwise, if no relationship records exists for this relationship, add it.
                         if (!relationships.Contains(def, thisCustomPawn, otherCustomPawn)) {
-                            relationships.Add(new CustomRelationship(def, definitions.FindInverseRelationship(def), thisCustomPawn, otherCustomPawn));
+                            relationships.Add(new CustomRelationship(def, FindInverseRelationship(def), thisCustomPawn, otherCustomPawn));
                         }
                     }
                 }
@@ -402,11 +393,24 @@ namespace EdB.PrepareCarefully {
 
         public void Clear() {
             this.parentChildPawns.Clear();
+            this.pawnCustomPawnLookup.Clear();
             this.relationships.Clear();
             this.parentChildGroups.Clear();
             Clean();
         }
         
+        public IEnumerable<PawnRelationDef> AllowedRelationships {
+            get {
+                return allowedRelationships;
+            }
+        }
+        
+        public IEnumerable<CustomRelationship> Relationships {
+            get {
+                return relationships;
+            }
+        }
+
         protected void Clean() {
             dirty = false;
         }
@@ -422,8 +426,25 @@ namespace EdB.PrepareCarefully {
             if (def.workerClass.GetMethod("CreateRelation", BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly) == null) {
                 return;
             }
-            this.relationships.Add(new CustomRelationship(def, definitions.FindInverseRelationship(def), source, target));
+            this.relationships.Add(new CustomRelationship(def, FindInverseRelationship(def), source, target));
             dirty = true;
+        }
+
+        public void AddRelationships(List<CustomRelationship> relationships) {
+            List<CustomRelationship> parentChildRelationships = new List<CustomRelationship>();
+            List<CustomRelationship> otherRelationships = new List<CustomRelationship>();
+            foreach (var r in relationships) {
+                if (r.def.defName == "Parent" || r.def.defName == "Child") {
+                    parentChildRelationships.Add(r);
+                }
+                else {
+                    otherRelationships.Add(r);
+                }
+            }
+            foreach (var r in otherRelationships) {
+                AddRelationship(r.def, r.source, r.target);
+            }
+            InitializeParentChildGroupRelationships(parentChildRelationships);
         }
 
         public void DeleteRelationship(CustomRelationship relationship) {
@@ -503,7 +524,6 @@ namespace EdB.PrepareCarefully {
             pawn.Index = NextTemporaryParentChildIndex;
             return pawn;
         }
-
     }
 }
 

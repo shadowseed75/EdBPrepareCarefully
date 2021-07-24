@@ -299,7 +299,7 @@ namespace EdB.PrepareCarefully {
                     Messages.Message("EdB.PC.Dialog.Preset.Error.RelationshipFailed".Translate(), MessageTypeDefOf.ThreatBig);
                 }
             }
-            loadout.RelationshipManager.AddRelationships(allRelationships);
+            loadout.RelationshipManager.InitializeWithRelationships(allRelationships);
 
             if (parentChildGroups != null) {
                 foreach (var groupRecord in parentChildGroups) {

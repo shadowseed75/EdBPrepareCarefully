@@ -156,6 +156,36 @@ namespace EdB.PrepareCarefully {
             }
         }
 
+        public BeardDef Beard {
+            get {
+                return pawn.style.beardDef;
+            }
+            set {
+                pawn.style.beardDef = value;
+                MarkPortraitAsDirty();
+            }
+        }
+
+        public TattooDef FaceTattoo {
+            get {
+                return pawn.style.FaceTattoo;
+            }
+            set {
+                pawn.style.FaceTattoo = value;
+                MarkPortraitAsDirty();
+            }
+        }
+
+        public TattooDef BodyTattoo {
+            get {
+                return pawn.style.BodyTattoo;
+            }
+            set {
+                pawn.style.BodyTattoo = value;
+                MarkPortraitAsDirty();
+            }
+        }
+
         public void GenerateId() {
             this.id = Guid.NewGuid().ToStringSafe();
         }
@@ -177,7 +207,7 @@ namespace EdB.PrepareCarefully {
         }
 
         public RenderTexture GetPortrait(Vector2 size) {
-            return PortraitsCache.Get(Pawn, size, new Vector3(0, 0, 0), 1.0f);
+            return PortraitsCache.Get(Pawn, size, Rot4.South, new Vector3(0, 0, 0), 1.0f);
         }
 
         public void InitializeWithPawn(Pawn pawn) {
@@ -641,6 +671,10 @@ namespace EdB.PrepareCarefully {
                     return "EdB.PC.Pawn.TemporaryPawnNameShort".Translate(Index.Value);
                 }
                 else {
+                    if (pawn == null) {
+                        Logger.Warning("Pawn was null");
+                        return "";
+                    }
                     return pawn.LabelShortCap;
                 }
             }
@@ -1318,9 +1352,9 @@ namespace EdB.PrepareCarefully {
         protected void ResetGender() {
             List<BodyTypeDef> bodyTypes = PrepareCarefully.Instance.Providers.BodyTypes.GetBodyTypesForPawn(this);
             if (pawn.gender == Gender.Female) {
-                if (HairDef.hairGender == HairGender.Male) {
+                if (HairDef.styleGender == StyleGender.Male) {
                     HairDef = DefDatabase<HairDef>.AllDefsListForReading.Find((HairDef def) => {
-                        return def.hairGender != HairGender.Male;
+                        return def.styleGender != StyleGender.Male;
                     });
                 }
                 if (BodyType == BodyTypeDefOf.Male) {
@@ -1330,9 +1364,9 @@ namespace EdB.PrepareCarefully {
                 }
             }
             else {
-                if (HairDef.hairGender == HairGender.Female) {
+                if (HairDef.styleGender == StyleGender.Female) {
                     HairDef = DefDatabase<HairDef>.AllDefsListForReading.Find((HairDef def) => {
-                        return def.hairGender != HairGender.Female;
+                        return def.styleGender != StyleGender.Female;
                     });
                 }
                 if (BodyType == BodyTypeDefOf.Female) {
